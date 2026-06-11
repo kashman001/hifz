@@ -12,3 +12,8 @@ No data is stored here. The student link key travels only in the URL the student
 prefer the `#s=<key>` fragment form if you want it kept out of request logs.
 
 The tracker itself: [Quran_Hifz_Tracker](https://github.com/kashman001/Quran_Hifz_Tracker).
+
+## docs/
+The product documentation (user guide, architecture, …) served at
+https://kashman001.github.io/hifz/docs/. **Generated** from the tracker repo's `docs/product/`
+by `npm run publish-docs` — don't edit here; changes belong in the tracker repo.
