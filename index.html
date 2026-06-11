@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hifz Tracker</title>
+<script>
+  // The STABLE Hifz Tracker link. The real app is a Google Apps Script /exec URL that changes if
+  // the script is ever rotated (Apps Script caps a script at 200 lifetime versions); this page is
+  // the bookmark that never changes. A rotation = update TARGET below (one commit).
+  //
+  // The query string (?s=<student token>) is passed through untouched. A fragment form
+  // (#s=<token>) also works and keeps the token out of server request logs.
+  var TARGET = 'https://script.google.com/macros/s/AKfycbwuqsmySKhOK0H-Om4_PrbiUK1VY2L0JCCq5kMvsN5gGRX84PQvbqgo3BVKE9YOO0Ri/exec';
+  var q = location.search || (location.hash ? '?' + location.hash.slice(1) : '');
+  location.replace(TARGET + q);
+</script>
+<noscript>
+  <p>JavaScript is off — <a href="https://script.google.com/macros/s/AKfycbwuqsmySKhOK0H-Om4_PrbiUK1VY2L0JCCq5kMvsN5gGRX84PQvbqgo3BVKE9YOO0Ri/exec">open the Hifz Tracker</a>
+  and add your <code>?s=…</code> link key manually.</p>
+</noscript>
+</head>
+<body></body>
+</html>
