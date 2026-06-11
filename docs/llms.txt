@@ -1,0 +1,31 @@
+# Quran Hifz Tracker — Documentation
+
+> A Google Sheets application and mobile-first Apps Script web app that tracks a child's Qur'an
+> memorization (hifz) through the Sabaq → Para Sabaq → Manzil memory pipeline, against two milestones
+> (Memorized, self-reported; Recited to Hafiz, teacher-verified). The unit is the line (8,820 in the
+> Madinah Mushaf); progress is also reported verse-aware (N / 6,236 āyāt). These docs are the rendered,
+> human-facing product documentation; the agent-loaded source of truth is CONTEXT.md + docs/reference/*.
+
+## Understand
+- [Product Spec](product-spec.html): what the product is — vision, domain model, the pipeline, the two milestones, every screen, configuration, constraints.
+- [Architecture](architecture.html): how it's built — sheet-as-database + Apps Script app, the logic/IO/registry seams, request & data flow, the two-deployment topology, the Ask chatbot, security.
+- [Code Structure](code-structure.html): file-by-file map, the module dependency graph, key pure functions and api* endpoints, the test suite.
+
+## Operate
+- [User Guide](user-guide.html): the daily logging routine, Home/Progress/Trends screens, the memory map, the Ask chatbot, and the owner/admin tasks.
+- [Developer Guide](dev-guide.html): setup, the clasp build/deploy loop, the staging→prod pipeline, CI and the doc-only skip, tests & fixtures, and working with AI agents on this repo.
+- [Deployment](deployment.html): what's deployed and where config & secrets live, and the stable student link.
+- [Migration](migration.html): runbook for moving a live instance to repo-driven config.
+
+## Key anchors
+- dev-guide.html#pipeline — the deploy pipeline (staging vs prod, rollback)
+- dev-guide.html#agents — working with AI agents on this repo (CONTEXT.md + reference docs + MCP)
+- architecture.html#components — components incl. the Ask chatbot
+- product-spec.html#pipeline — Sabaq / Para Sabaq / Manzil
+- product-spec.html#states — the memory-map states
+- user-guide.html#trends — Trends incl. onboarding/coverage-sweep exclusion
+
+## Notes
+- This doc set is published at https://kashman001.github.io/hifz/docs/ (republish: npm run publish-docs).
+- Canonical project context: CONTEXT.md (repo root). Deep reference: docs/reference/*.md.
+- No real spreadsheet ids, tokens, or secrets appear in any doc (they live only in git-ignored files).

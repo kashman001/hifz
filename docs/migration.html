@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Migration Runbook — Quran Hifz Tracker</title>
+<meta name="description" content="Runbook for migrating a live Hifz Tracker instance to repo-driven config: the Script Properties to seed, the push/redeploy order, smoke checks, rollback.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<input type="checkbox" id="navtoggle" class="navtoggle">
+<label class="hamburger" for="navtoggle">☰ &nbsp;Hifz Tracker docs</label>
+<div class="shell">
+
+  <nav class="sidenav" aria-label="Documentation sections">
+    <a class="brand" href="index.html"><span class="mark">۞</span> Hifz Tracker</a>
+    <div class="ver">docs · prod <code>@176</code>/<code>@177</code></div>
+    <a class="nav" href="index.html">Overview</a>
+    <div class="band">Understand</div>
+    <a class="nav" href="product-spec.html">Product Spec</a>
+    <a class="nav" href="architecture.html">Architecture</a>
+    <a class="nav" href="code-structure.html">Code Structure</a>
+    <div class="band">Operate</div>
+    <a class="nav" href="user-guide.html">User Guide</a>
+    <a class="nav" href="dev-guide.html">Dev Guide</a>
+    <a class="nav" href="deployment.html">Deployment</a>
+    <a class="nav active" href="migration.html">Migration</a>
+  </nav>
+
+  <main class="content" id="main"><div class="inner">
+    <div class="crumb"><a href="index.html">Docs</a> › Operate › Migration</div>
+    <header class="pagehead">
+      <div class="kick">07 — Migrate</div>
+      <h1>Migrating the live instance to repo-driven config</h1>
+      <div class="flourish"></div>
+      <p class="lead">The <code>project_packaging</code> branch externalises the four per-instance IDs that
+      were hardcoded in <code>Registry.js</code> (S1) and replaces the Dashboard summary read with a computed
+      summary in <code>Logic.js</code> (S2). This runbook walks the owner through seeding the required Apps
+      Script Script Properties so the live instance keeps behaving identically once the branch is deployed.</p>
+    </header>
+
+  <!-- ═══════════════════════════════════════════════ 1 · WHAT CHANGES -->
+  <h2 class="anchor" id="whatchanges">1 · What changes (before → after)</h2>
+
+  <p>S1 and S2 are code-complete on the branch and deploy-deferred. The sheet data model, formulas,
+  and native dashboards are <b>unchanged</b>. Once the properties below are set and the branch is
+  pushed/deployed, behaviour is byte-identical to the current live deployment.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4><span class="pill blue">S1</span> Config externalisation</h4>
+      <p>Four per-instance IDs that were hardcoded in <code>Registry.js</code> move into
+      <b>Apps Script Script Properties</b>, read via a lazy <code>cfg_()</code> helper on first access.
+      <code>.clasp.json</code> becomes untracked (a committed <code>.clasp.json.example</code> replaces
+      it as the template). A read-only <code>configStatus()</code> function in <code>Registry.js</code>
+      reports which of the four keys are set — run it in the Apps Script editor to confirm seeding.</p>
+    </div>
+    <div class="card">
+      <h4><span class="pill blue">S2</span> Summary decoupled from Dashboard tab</h4>
+      <p>The app stops reading <code>Dashboard!A7:L7</code>. The 12-field summary is now computed by
+      <code>Logic.computeSummary</code> directly from the <code>Sabaq_Tracker</code> rows already in
+      memory. <code>dailyTarget</code> and <code>startDate</code> become per-student Script Properties
+      (<code>mp.&lt;token&gt;.dailyTarget</code>, <code>start.&lt;token&gt;</code>). When a
+      <code>Dashboard</code> tab exists the app still <b>mirror-writes</b> <code>E7</code>, keeping
+      the native dashboard projection live.</p>
+    </div>
+  </div>
+
+  <table>
+    <thead><tr><th>Concern</th><th>Before</th><th>After</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Registry / template IDs</td>
+        <td>Hardcoded literals in <code>Registry.js</code></td>
+        <td>Script Properties, lazy-read via <code>cfg_()</code></td>
+      </tr>
+      <tr>
+        <td><code>.clasp.json</code></td>
+        <td>Committed with real Script ID</td>
+        <td>Git-ignored; <code>.clasp.json.example</code> committed as template</td>
+      </tr>
+      <tr>
+        <td>Summary source</td>
+        <td><code>Dashboard!A7:L7</code> (SpreadsheetApp read)</td>
+        <td><code>Logic.computeSummary</code> over tracker rows already fetched</td>
+      </tr>
+      <tr>
+        <td>daily target / start date</td>
+        <td>Hardcoded defaults in <code>Registry.js</code></td>
+        <td>Per-student Script Properties with hardcoded fallback</td>
+      </tr>
+      <tr>
+        <td>Dashboard mirror-write</td>
+        <td>Not applicable (app read from Dashboard)</td>
+        <td>App writes <code>E7</code> when tab present → native projection stays live</td>
+      </tr>
+      <tr>
+        <td>Sheet data model, formulas, dashboards</td>
+        <td colspan="2" style="text-align:center"><b>Unchanged</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ═══════════════════════════════════════════════ 2 · PARAMS TO SEED -->
+  <h2 class="anchor" id="params">2 · Parameters to seed</h2>
+
+  <div class="callout warn">
+    <b>Secret safety.</b> The values for every placeholder below are stored in your local
+    <code>deployment.local.md</code> (git-ignored — never commit it). Open that file now and
+    copy each real value into the Apps Script Script Properties editor. This runbook contains
+    <em>no real tokens, IDs, or keys</em> — only placeholders.
+  </div>
+
+  <h3>Per-instance config (S1 — 4 keys + chatbot secret)</h3>
+  <p>These five properties are shared across all students on this script. Set them once. Values
+  come from <code>deployment.local.md §②</code> except <code>OWNER_EMAIL</code> (non-secret,
+  known) and <code>HIFZ_TRACKER_API_KEY</code> (paste from the Apps Script editor's
+  <i>Script Properties</i> if already set, or from your secure key store — it is deliberately
+  absent from <code>deployment.local.md</code>).</p>
+
+  <pre>
+# Per-instance config (values from deployment.local.md §②)
+REGISTRY_SPREADSHEET_ID   = &lt;registry spreadsheet id — from deployment.local.md §②&gt;
+TEMPLATE_SPREADSHEET_ID   = &lt;template spreadsheet id — from deployment.local.md §②&gt;
+OWNER_EMAIL               = owner@example.com
+STUDENT_APP_BASE_URL      = https://script.google.com/macros/s/&lt;student-deployment-id&gt;/exec
+HIFZ_TRACKER_API_KEY     = &lt;paste the chatbot key from the Apps Script editor — not in the file&gt;
+  </pre>
+
+  <h3>Per-student summary inputs (S2 — 3 students captured 2026-06-05)</h3>
+  <p>The live registry had <b>3 students</b> at capture time: <b>Talib</b> (active, the primary
+  student), <b>SmokeTest</b> (active test account), and <b>TestKid</b> (inactive). Each student's
+  token is their link key — find all three in <code>deployment.local.md §③</code>.</p>
+
+  <p>All three targets equal the default <code>10</code>, so a missing per-student key
+  is harmless — the app falls back to <code>10</code> automatically. Only Talib strictly needs a
+  <code>start.&lt;token&gt;</code> (the others had no start date recorded; the app falls back to
+  their earliest memorized date).</p>
+
+  <pre>
+# Per-student S2 properties — tokens from deployment.local.md §③
+mp.&lt;TALIB_TOKEN&gt;.dailyTarget     = 10
+start.&lt;TALIB_TOKEN&gt;              = 2026-03-23
+mp.&lt;SMOKETEST_TOKEN&gt;.dailyTarget = 10
+mp.&lt;TESTKID_TOKEN&gt;.dailyTarget   = 10
+  </pre>
+
+  <div class="callout blue">
+    <b>Why start date matters for Talib only.</b> The projected-finish formula depends on
+    <code>startDate</code> to compute elapsed days and extrapolate the completion date. Talib's
+    start date is <code>2026-03-23</code>. The SmokeTest and TestKid accounts have no meaningful
+    start date — the fallback (earliest memorized date) is correct for them.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 3 · DIAGRAM -->
+  <h2 class="anchor" id="diagram">3 · Migration sequence diagram</h2>
+
+  <div class="figure">
+    <!--mmd:migration-1--><div class="mmd"><svg id="mmd-migration-1" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 577.531px; background-color: transparent;;max-width:100%;height:auto" viewBox="0 0 577.53125 1393.859375" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mmd-migration-1{font-family:Georgia,"Times New Roman",serif;font-size:16px;fill:#3b3322;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mmd-migration-1 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mmd-migration-1 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mmd-migration-1 .error-icon{fill:#f4ecdc;}#mmd-migration-1 .error-text{fill:#0b1323;stroke:#0b1323;}#mmd-migration-1 .edge-thickness-normal{stroke-width:1px;}#mmd-migration-1 .edge-thickness-thick{stroke-width:3.5px;}#mmd-migration-1 .edge-pattern-solid{stroke-dasharray:0;}#mmd-migration-1 .edge-thickness-invisible{stroke-width:0;fill:none;}#mmd-migration-1 .edge-pattern-dashed{stroke-dasharray:3;}#mmd-migration-1 .edge-pattern-dotted{stroke-dasharray:2;}#mmd-migration-1 .marker{fill:#8a7a5c;stroke:#8a7a5c;}#mmd-migration-1 .marker.cross{stroke:#8a7a5c;}#mmd-migration-1 svg{font-family:Georgia,"Times New Roman",serif;font-size:16px;}#mmd-migration-1 p{margin:0;}#mmd-migration-1 .label{font-family:Georgia,"Times New Roman",serif;color:#3b3322;}#mmd-migration-1 .cluster-label text{fill:#3f4a2e;}#mmd-migration-1 .cluster-label span{color:#3f4a2e;}#mmd-migration-1 .cluster-label span p{background-color:transparent;}#mmd-migration-1 .label text,#mmd-migration-1 span{fill:#3b3322;color:#3b3322;}#mmd-migration-1 .node rect,#mmd-migration-1 .node circle,#mmd-migration-1 .node ellipse,#mmd-migration-1 .node polygon,#mmd-migration-1 .node path{fill:#ffffff;stroke:#e4d8c2;stroke-width:1px;}#mmd-migration-1 .rough-node .label text,#mmd-migration-1 .node .label text,#mmd-migration-1 .image-shape .label,#mmd-migration-1 .icon-shape .label{text-anchor:middle;}#mmd-migration-1 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mmd-migration-1 .rough-node .label,#mmd-migration-1 .node .label,#mmd-migration-1 .image-shape .label,#mmd-migration-1 .icon-shape .label{text-align:center;}#mmd-migration-1 .node.clickable{cursor:pointer;}#mmd-migration-1 .root .anchor path{fill:#8a7a5c!important;stroke-width:0;stroke:#8a7a5c;}#mmd-migration-1 .arrowheadPath{fill:rgba(255, 255, 255, 0);}#mmd-migration-1 .edgePath .path{stroke:#8a7a5c;stroke-width:1px;}#mmd-migration-1 .flowchart-link{stroke:#8a7a5c;fill:none;}#mmd-migration-1 .edgeLabel{background-color:#fbf7ef;text-align:center;}#mmd-migration-1 .edgeLabel p{background-color:#fbf7ef;}#mmd-migration-1 .edgeLabel rect{opacity:0.5;background-color:#fbf7ef;fill:#fbf7ef;}#mmd-migration-1 .labelBkg{background-color:rgba(251, 247, 239, 0.5);}#mmd-migration-1 .cluster rect{fill:#f8f1e3;stroke:#e4d8c2;stroke-width:1px;}#mmd-migration-1 .cluster text{fill:#3f4a2e;}#mmd-migration-1 .cluster span{color:#3f4a2e;}#mmd-migration-1 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:Georgia,"Times New Roman",serif;font-size:12px;background:#f4ecdc;border:1px solid hsl(40, 12.1739130435%, 80.9803921569%);border-radius:2px;pointer-events:none;z-index:100;}#mmd-migration-1 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#3b3322;}#mmd-migration-1 rect.text{fill:none;stroke-width:0;}#mmd-migration-1 .icon-shape,#mmd-migration-1 .image-shape{background-color:#fbf7ef;text-align:center;}#mmd-migration-1 .icon-shape p,#mmd-migration-1 .image-shape p{background-color:#fbf7ef;padding:2px;}#mmd-migration-1 .icon-shape .label rect,#mmd-migration-1 .image-shape .label rect{opacity:0.5;background-color:#fbf7ef;fill:#fbf7ef;}#mmd-migration-1 .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mmd-migration-1 .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mmd-migration-1 .node .neo-node{stroke:#e4d8c2;}#mmd-migration-1 [data-look="neo"].node rect,#mmd-migration-1 [data-look="neo"].cluster rect,#mmd-migration-1 [data-look="neo"].node polygon{stroke:url(#mmd-migration-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-migration-1 [data-look="neo"].node path{stroke:url(#mmd-migration-1-gradient);stroke-width:1px;}#mmd-migration-1 [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-migration-1 [data-look="neo"].node .neo-line path{stroke:#e4d8c2;filter:none;}#mmd-migration-1 [data-look="neo"].node circle{stroke:url(#mmd-migration-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-migration-1 [data-look="neo"].node circle .state-start{fill:#000000;}#mmd-migration-1 [data-look="neo"].icon-shape .icon{fill:url(#mmd-migration-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-migration-1 [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mmd-migration-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-migration-1 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="mmd-migration-1_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-migration-1_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"/></marker><marker id="mmd-migration-1_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M266.336,206L266.336,210.167C266.336,214.333,266.336,222.667,266.336,230.333C266.336,238,266.336,245,266.336,248.5L266.336,252" id="mmd-migration-1-L_A_B_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_B_0" data-points="W3sieCI6MjY2LjMzNTkzNzUsInkiOjIwNn0seyJ4IjoyNjYuMzM1OTM3NSwieSI6MjMxfSx7IngiOjI2Ni4zMzU5Mzc1LCJ5IjoyNTZ9XQ==" data-look="classic" marker-end="url(#mmd-migration-1_flowchart-v2-pointEnd)"/><path d="M266.336,358L266.336,362.167C266.336,366.333,266.336,374.667,266.336,382.333C266.336,390,266.336,397,266.336,400.5L266.336,404" id="mmd-migration-1-L_B_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_C_0" data-points="W3sieCI6MjY2LjMzNTkzNzUsInkiOjM1OH0seyJ4IjoyNjYuMzM1OTM3NSwieSI6MzgzfSx7IngiOjI2Ni4zMzU5Mzc1LCJ5Ijo0MDh9XQ==" data-look="classic" marker-end="url(#mmd-migration-1_flowchart-v2-pointEnd)"/><path d="M266.336,558L266.336,562.167C266.336,566.333,266.336,574.667,266.336,582.333C266.336,590,266.336,597,266.336,600.5L266.336,604" id="mmd-migration-1-L_C_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_D_0" data-points="W3sieCI6MjY2LjMzNTkzNzUsInkiOjU1OH0seyJ4IjoyNjYuMzM1OTM3NSwieSI6NTgzfSx7IngiOjI2Ni4zMzU5Mzc1LCJ5Ijo2MDh9XQ==" data-look="classic" marker-end="url(#mmd-migration-1_flowchart-v2-pointEnd)"/><path d="M335.851,820.345L353.131,838.097C370.411,855.85,404.971,891.354,422.251,914.607C439.531,937.859,439.531,948.859,439.531,954.359L439.531,959.859" id="mmd-migration-1-L_D_F_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_F_0" data-points="W3sieCI6MzM1Ljg1MDY3MjMyOTczMjU2LCJ5Ijo4MjAuMzQ0NjQwMTcwMjY3NH0seyJ4Ijo0MzkuNTMxMjUsInkiOjkyNi44NTkzNzV9LHsieCI6NDM5LjUzMTI1LCJ5Ijo5NjMuODU5Mzc1fV0=" data-look="classic" marker-end="url(#mmd-migration-1_flowchart-v2-pointEnd)"/><path d="M198.891,822.415L182.915,839.822C166.938,857.23,134.985,892.044,121.621,918.976C108.258,945.907,113.485,964.954,116.099,974.478L118.712,984.002" id="mmd-migration-1-L_D_E_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_E_0" data-points="W3sieCI6MTk4Ljg5MTE1MzkwNjE0MjY4LCJ5Ijo4MjIuNDE0NTkxNDA2MTQyN30seyJ4IjoxMDMuMDMxMjUsInkiOjkyNi44NTkzNzV9LHsieCI6MTE5Ljc3MDUwNzgxMjUsInkiOjk4Ny44NTkzNzV9XQ==" data-look="classic" marker-end="url(#mmd-migration-1_flowchart-v2-pointEnd)"/><path d="M194.132,987.859L206.166,977.693C218.2,967.526,242.268,947.193,254.302,931.526C266.336,915.859,266.336,904.859,266.336,899.359L266.336,893.859" id="mmd-migration-1-L_E_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_E_D_0" data-points="W3sieCI6MTk0LjEzMjQ2MzcyNzY3ODU2LCJ5Ijo5ODcuODU5Mzc1fSx7IngiOjI2Ni4zMzU5Mzc1LCJ5Ijo5MjYuODU5Mzc1fSx7IngiOjI2Ni4zMzU5Mzc1LCJ5Ijo4ODkuODU5Mzc1fV0=" data-look="classic" marker-end="url(#mmd-migration-1_flowchart-v2-pointEnd)"/><path d="M439.531,1113.859L439.531,1118.026C439.531,1122.193,439.531,1130.526,439.531,1138.193C439.531,1145.859,439.531,1152.859,439.531,1156.359L439.531,1159.859" id="mmd-migration-1-L_F_G_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_F_G_0" data-points="W3sieCI6NDM5LjUzMTI1LCJ5IjoxMTEzLjg1OTM3NX0seyJ4Ijo0MzkuNTMxMjUsInkiOjExMzguODU5Mzc1fSx7IngiOjQzOS41MzEyNSwieSI6MTE2My44NTkzNzV9XQ==" data-look="classic" marker-end="url(#mmd-migration-1_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_A_B_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_B_C_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_D_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(439.53125, 926.859375)"><g class="label" data-id="L_D_F_0" transform="translate(-20.625, -12)"><foreignObject width="41.25" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>all set</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(129.5753, 897.93814)"><g class="label" data-id="L_D_E_0" transform="translate(-41.46875, -12)"><foreignObject width="82.9375" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>missing key</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_E_D_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_F_G_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="mmd-migration-1-flowchart-A-0" data-look="classic" transform="translate(266.3359375, 107)"><rect class="basic label-container" style="" x="-130" y="-99" width="260" height="198"/><g class="label" style="" transform="translate(-100, -84)"><rect/><foreignObject width="200" height="168"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p><b>1 · Set Script Properties</b><br />Open Apps Script editor → Project Settings<br />→ Script Properties → Add all 9 keys<br />(4 config + chatbot key + 4 per-student)</p></span></div></foreignObject></g></g><g class="node default" id="mmd-migration-1-flowchart-B-1" data-look="classic" transform="translate(266.3359375, 307)"><rect class="basic label-container" style="" x="-101.8984375" y="-51" width="203.796875" height="102"/><g class="label" style="" transform="translate(-71.8984375, -36)"><rect/><foreignObject width="143.796875" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p><b>2 · Run local tests</b><br />npm test<br />node --check *.js</p></span></div></foreignObject></g></g><g class="node default" id="mmd-migration-1-flowchart-C-2" data-look="classic" transform="translate(266.3359375, 483)"><rect class="basic label-container" style="" x="-130" y="-75" width="260" height="150"/><g class="label" style="" transform="translate(-100, -60)"><rect/><foreignObject width="200" height="120"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p><b>3 · clasp push -f</b><br />Push branch code to bound script<br />(overwrites remote; golden rule applies)</p></span></div></foreignObject></g></g><g class="node default" id="mmd-migration-1-flowchart-D-3" data-look="classic" transform="translate(266.3359375, 748.9296875)"><polygon points="140.9296875,0 281.859375,-140.9296875 140.9296875,-281.859375 0,-140.9296875" class="label-container" transform="translate(-140.4296875, 140.9296875)"/><g class="label" style="" transform="translate(-89.9296875, -36)"><rect/><foreignObject width="179.859375" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p><b>4 · configStatus()</b><br />Run in Apps Script editor<br />All 4 config keys set?</p></span></div></foreignObject></g></g><g class="node default" id="mmd-migration-1-flowchart-E-4" data-look="classic" transform="translate(133.765625, 1038.859375)"><rect class="basic label-container" style="" x="-125.765625" y="-51" width="251.53125" height="102"/><g class="label" style="" transform="translate(-95.765625, -36)"><rect/><foreignObject width="191.53125" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p><b>5a · Fix missing keys</b><br />Return to Script Properties<br />and seed any missing value</p></span></div></foreignObject></g></g><g class="node default" id="mmd-migration-1-flowchart-F-5" data-look="classic" transform="translate(439.53125, 1038.859375)"><rect class="basic label-container" style="" x="-130" y="-75" width="260" height="150"/><g class="label" style="" transform="translate(-100, -60)"><rect/><foreignObject width="200" height="120"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p><b>5b · Deploy both targets</b><br />clasp deploy -i  -d 'S1+S2 config migration'<br />clasp deploy -i  -d 'S1+S2 config migration'</p></span></div></foreignObject></g></g><g class="node default" id="mmd-migration-1-flowchart-G-6" data-look="classic" transform="translate(439.53125, 1274.859375)"><rect class="basic label-container" style="" x="-130" y="-111" width="260" height="222"/><g class="label" style="" transform="translate(-100, -96)"><rect/><foreignObject width="200" height="192"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p><b>6 · Smoke verify</b><br />Open student app → Home<br />6203 recited / 70.3% / 22-Feb-2027<br />Settings → daily target → E7 updates<br />⟳ forced refresh → identical numbers</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="mmd-migration-1-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><defs><filter id="mmd-migration-1-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><linearGradient id="mmd-migration-1-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e4d8c2" stop-opacity="1"/><stop offset="100%" stop-color="hsl(154.2857142857, 0%, 82.9411764706%)" stop-opacity="1"/></linearGradient></svg></div><!--/mmd:migration-1-->
+    <figcaption>Migration sequence: seed Script Properties first, verify locally, push code, confirm
+    <code>configStatus()</code> reports all four config keys present, then deploy both targets in place
+    (URLs unchanged), and smoke-verify against the known good numbers.</figcaption>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 4 · STEP-BY-STEP -->
+  <h2 class="anchor" id="steps">4 · Step-by-step</h2>
+
+  <ol>
+    <li>
+      <b>Set Script Properties.</b> Open the Apps Script editor for the bound script
+      (<a href="https://script.google.com" target="_blank">script.google.com</a> → the tracker project).
+      Go to <i>Project Settings → Script Properties → Edit script properties</i>. Add all 9 keys from
+      <a href="#params">§ 2</a> above, copying real values from your local
+      <code>deployment.local.md</code>. The chatbot key must be pasted from your secure store —
+      it is not in the file.
+    </li>
+    <li>
+      <b>Run local tests.</b>
+      <pre><code>npm test
+node --check Code.js Logic.js Sheet.js Registry.js Cache.js Chatbot.js MushafData.js</code></pre>
+      All tests must pass before pushing. Fix any failures before proceeding.
+    </li>
+    <li>
+      <b>Push the branch code.</b>
+      <pre><code>clasp push -f</code></pre>
+      This overwrites the remote script with the local source. Ensure no one else has edited the
+      online Apps Script editor since your last <code>clasp pull</code> (golden rule).
+    </li>
+    <li>
+      <b>Verify config is complete.</b> In the Apps Script editor, open <code>Registry.js</code> and
+      run <code>configStatus()</code> from the function selector. The execution log should report
+      all four config keys (<code>REGISTRY_SPREADSHEET_ID</code>, <code>TEMPLATE_SPREADSHEET_ID</code>,
+      <code>OWNER_EMAIL</code>, <code>STUDENT_APP_BASE_URL</code>) as <code>set</code>. If any show
+      <code>missing</code>, return to Script Properties and seed them.
+    </li>
+    <li>
+      <b>Deploy both targets in place.</b>
+      <pre><code>clasp deploy -i &lt;student-deployment-id&gt; -d "S1+S2 config migration 2026-06-05"
+clasp deploy -i &lt;admin-deployment-id&gt;  -d "S1+S2 config migration 2026-06-05"</code></pre>
+      Replace each placeholder with the real deployment ID from <code>deployment.local.md §④</code>.
+      Both <code>/exec</code> URLs stay the same — only the version they serve is bumped.
+    </li>
+    <li>
+      <b>Smoke verify.</b> See <a href="#verify">§ 5</a> below.
+    </li>
+  </ol>
+
+  <div class="callout blue">
+    <b>Both deployments must be bumped.</b> The student app and the admin app share the same script
+    but are separate deployment IDs. A push only stages code — it doesn't update what the
+    <code>/exec</code> URL serves until you run <code>clasp deploy -i &lt;id&gt;</code> for each one.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 5 · VERIFY -->
+  <h2 class="anchor" id="verify">5 · Verify / smoke</h2>
+
+  <p>Use these checks against the known-good numbers captured on 2026-06-05. All values should
+  match the pre-migration baseline exactly — the migration is configuration-only and must not
+  alter any computed result.</p>
+
+  <div class="card">
+    <h4>Smoke checklist</h4>
+    <ul>
+      <li>Open the student app (<code>/exec?s=&lt;TALIB_TOKEN&gt;</code>).
+          <b>Home</b> shows approximately <b>6203 recited / 70.3% / projected finish 22-Feb-2027</b>.</li>
+      <li><b>Progress tab</b> — the memory-state map renders; colour bands match pre-migration
+          (no blank pages, no all-grey map).</li>
+      <li><b>Trends tab</b> — pace / projection numbers are unchanged.</li>
+      <li><b>Settings → daily target</b> — still reads <code>10</code>; updating it still writes
+          <code>Dashboard!E7</code> (open the sheet and confirm <code>E7</code> updates).</li>
+      <li><b>⟳ forced refresh</b> — tap the refresh icon; <code>apiGetState</code> recomputes from
+          tracker rows; numbers match cached values.</li>
+      <li><b>Ask (💬) chatbot</b> — send a simple question ("how many lines have I recited?"); a
+          response arrives (confirms <code>HIFZ_TRACKER_API_KEY</code> is set correctly).</li>
+      <li><b>History (🕐)</b> — pick a past date; the as-of snapshot loads without error.</li>
+      <li><b>Admin app</b> — loads the admin screen without error (confirms admin deployment was also
+          bumped and config keys resolve).</li>
+    </ul>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 6 · ROLLBACK -->
+  <h2 class="anchor" id="rollback">6 · Rollback</h2>
+
+  <p>Script Properties are <b>additive</b>. This migration only <em>adds</em> new keys — it never
+  wipes or renames existing keys such as <code>pos.&lt;token&gt;</code> (cursor positions) or other
+  <code>mp.*</code> overrides. All pre-existing per-student state is preserved untouched.</p>
+
+  <p>To roll back: redeploy the previously-deployed version tag using the Apps Script editor's
+  <i>Deploy → Manage deployments</i> panel. Select the previous version for the student deployment
+  and the admin deployment and serve it. The <code>/exec</code> URLs point to the same deployment
+  IDs — no URL change required. The Script Properties added during migration are inert to the old
+  code (it ignores unknown properties) so they do not need to be removed.</p>
+
+  <div class="callout">
+    <b>Data-level rollback (S3, future).</b> Once S3 lands, a dated Drive archive of each student
+    sheet is taken before any structural slim-down. That archive is the data-level rollback point.
+    S1/S2 alone do not modify sheet data, so no data-level rollback is needed for this migration.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 7 · WHERE S3 FITS -->
+  <h2 class="anchor" id="s3">7 · Where S3 fits</h2>
+
+  <p><b>A fresh adopter</b> does not follow this runbook. They run the S3 <code>setup()</code>
+  function, which creates the Registry spreadsheet and a clean template from scratch, then writes
+  the four config keys automatically. The property-seeding in § 2 is specific to the
+  <em>existing</em> live instance, which already has its Registry and student sheets in place.</p>
+
+  <p><b>The existing instance does not need <code>setup()</code></b> — running it would attempt to
+  create a duplicate Registry. Follow this runbook instead.</p>
+
+  <p>S3 also offers two optional, gated operations that are <em>separate from and later than</em>
+  this config migration:</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Slim-down (optional)</h4>
+      <p>Archive → reference-scan → remove the 5 legacy reference tabs from each existing student
+      sheet (e.g. the compiled <code>MushafData</code> / <code>LineIndex</code> tabs that were
+      superseded when the structure moved into <code>MushafData.js</code>). Gated behind an
+      explicit confirmation; performed per student sheet individually.</p>
+    </div>
+    <div class="card">
+      <h4>Dashboard updatability (optional)</h4>
+      <p>Makes the native dashboard formulas repo-updatable — the formula set can be re-applied
+      to an existing sheet from the script rather than hand-edited. Does not change the data model
+      or the computed numbers; purely a maintenance convenience.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 8 · SAFETY -->
+  <h2 class="anchor" id="safety">8 · Secret safety</h2>
+
+  <div class="callout warn">
+    <b><code>deployment.local.md</code> is git-ignored — never commit it.</b> It carries student
+    link-tokens (each student's unguessable URL key), the Registry and template spreadsheet IDs,
+    the two deployment IDs, and a slot for the chatbot API key. Any of these in a commit would
+    expose student data and allow unauthenticated access to the web app endpoints.
+    <br><br>
+    This runbook is safe to commit because it holds <em>only placeholders</em>
+    (<code>&lt;TALIB_TOKEN&gt;</code>, <code>&lt;registry spreadsheet id&gt;</code>, etc.). The
+    operator supplies real values from their local copy at migration time. <b>Never paste a real
+    token or ID into this file.</b>
+  </div>
+
+  <p>The <code>HIFZ_TRACKER_API_KEY</code> is handled separately from <code>deployment.local.md</code>
+  entirely — it is not written to any file in the repo and must be copied directly from the Apps Script
+  editor's <i>Script Properties</i> panel (or your secure key store) into the new Script Property slot.
+  See <code>docs/SETUP.md</code> for the key-rotation runbook if you need to issue a new key.</p>
+
+    <footer class="docfoot">
+      Quran Hifz Tracker · documentation · canonical context in <code>CONTEXT.md</code> at the repo
+      root · machine index: <a href="llms.txt">llms.txt</a>.
+    </footer>
+  </div></main>
+
+  <aside class="onthispage" aria-label="On this page">
+    <div class="lbl">On this page</div>
+    <a href="#whatchanges">What changes (before → after)</a>
+    <a href="#params">Parameters to seed</a>
+    <a href="#diagram">Migration sequence diagram</a>
+    <a href="#steps">Step-by-step</a>
+    <a href="#verify">Verify / smoke</a>
+    <a href="#rollback">Rollback</a>
+    <a href="#s3">Where S3 fits</a>
+    <a href="#safety">Secret safety</a>
+    <div class="forai">
+      <div class="lbl">For AI</div>
+      <a href="llms.txt">↗ llms.txt</a>
+    </div>
+  </aside>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Developer Guide — Quran Hifz Tracker</title>
+<meta name="description" content="How to work on the Hifz Tracker: setup, the clasp build/deploy loop, the staging→prod pipeline, CI and the doc-only skip, tests & fixtures, and working with AI agents on this repo.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<input type="checkbox" id="navtoggle" class="navtoggle">
+<label class="hamburger" for="navtoggle">☰ &nbsp;Hifz Tracker docs</label>
+<div class="shell">
+
+  <nav class="sidenav" aria-label="Documentation sections">
+    <a class="brand" href="index.html"><span class="mark">۞</span> Hifz Tracker</a>
+    <div class="ver">docs · prod <code>@176</code>/<code>@177</code></div>
+    <a class="nav" href="index.html">Overview</a>
+    <div class="band">Understand</div>
+    <a class="nav" href="product-spec.html">Product Spec</a>
+    <a class="nav" href="architecture.html">Architecture</a>
+    <a class="nav" href="code-structure.html">Code Structure</a>
+    <div class="band">Operate</div>
+    <a class="nav" href="user-guide.html">User Guide</a>
+    <a class="nav active" href="dev-guide.html">Dev Guide</a>
+    <a class="nav" href="deployment.html">Deployment</a>
+    <a class="nav" href="migration.html">Migration</a>
+  </nav>
+
+  <main class="content" id="main"><div class="inner">
+    <div class="crumb"><a href="index.html">Docs</a> › Operate › Dev Guide</div>
+    <header class="pagehead">
+      <div class="kick">05 — Work on it</div>
+      <h1>Developer Guide</h1>
+      <div class="flourish"></div>
+      <p class="lead">Set up a machine, edit the web app, and ship it safely — the clasp loop, the
+      staging→prod pipeline, CI, and the tests/fixtures, end to end.</p>
+    </header>
+
+  <p>This page is the map, not the territory: it points to the canonical runbooks rather than
+  copying them. For the full build &amp; deploy detail see <code>docs/reference/dev-lifecycle.md</code>;
+  for what is actually deployed and where config lives, see <a href="deployment.html">Deployment</a>.</p>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="setup">1 · Set up a machine</h2>
+
+  <p>One-time bring-up of a fresh Mac. The full runbook (Homebrew prereqs, enabling the Apps Script
+  API, OAuth flows) lives in <code>docs/SETUP.md</code> — this is the shape of it.</p>
+
+  <ul>
+    <li><b>Node 20+</b> (currently v26) — runs the <code>Logic.js</code> unit tests and the docs'
+    diagram renderer.</li>
+    <li><b>clasp 3.x</b> — pushes the web-app code to the bound Apps Script project and manages
+    deployments. Authenticate once with <code>clasp login</code> (writes <code>.clasprc.json</code>).</li>
+    <li><b>uv / uvx</b> — runs the <code>google-sheets</code> MCP server, which reads and writes the
+    sheet directly. It uses its own OAuth flow (acts as the signed-in Google user).</li>
+    <li><b>Chatbot key</b> — the Ask chatbot needs the <code>HIFZ_TRACKER_API_KEY</code> Script
+    Property set once in the Apps Script editor (<em>Project Settings → Script Properties</em>). It is
+    not in the repo and never leaves the script.</li>
+  </ul>
+
+  <div class="callout blue">
+    <b>One account, everywhere.</b> clasp, the MCP OAuth, and the sheet must all be the same Google
+    account. A mismatch is the usual cause of "can't find the script/sheet" errors. The owning
+    account's real identifiers live only in the git-ignored <code>deployment.local.md</code> — never
+    in the repo.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="two-tools">2 · Two tools, two jobs</h2>
+
+  <p>The repo is the local dev environment for two distinct surfaces, each with its own tool. Pick
+  the right one for the task:</p>
+
+  <ul>
+    <li><b>Code → clasp.</b> The web-app source (<code>Code.js</code>, <code>Logic.js</code>,
+    <code>Sheet.js</code>, the <code>*.html</code> front-end, the manifest) and any automation. clasp
+    pushes it to the bound script.</li>
+    <li><b>Data / formulas → the <code>google-sheets</code> MCP.</b> Reading cell values, writing
+    cells, appending rows, inspecting formulas, searching content. The dashboards' logic lives in the
+    sheet, not the repo — inspect it via the MCP before changing any data structure.</li>
+  </ul>
+
+  <div class="callout warn">
+    <b>The golden rule — never edit in two places at once.</b> Do not edit the Apps Script in the
+    online editor and locally in the same window of time. <code>clasp push</code> and
+    <code>clasp pull</code> <em>overwrite</em> the other side — there is no merge. If unsure which side
+    is newer, <code>clasp pull</code> first and reconcile by hand.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="clasp-loop">3 · The clasp loop</h2>
+
+  <p>The edit cycle for any code change. Always <code>pull</code> before editing to get the latest
+  remote state; run the Node tests for any <code>Logic.js</code> change; then push and redeploy in
+  place (the <code>/exec</code> URL never changes).</p>
+
+  <pre><code>clasp pull                         # ALWAYS pull first — get latest remote state
+# ...edit the web-app source locally...
+npm test                           # for any Logic.js change (Node unit tests)
+clasp push                         # push your changes to the bound script
+clasp status                       # confirm only the intended files are tracked
+clasp deploy -i &lt;deployment-id&gt; -d "..."   # update in place (staging; prod: follow the runbook — one version per release)</code></pre>
+
+  <div class="callout warn">
+    <b><code>.claspignore</code> whitelists — it does not blacklist.</b> It ignores everything, then
+    re-includes only the named web-app source files. When you <b>add a new Apps Script file</b> (e.g.
+    <code>Menu.js</code>, <code>Sidebar.html</code>) you must add a matching <code>!Menu.js</code> line
+    or <code>clasp push</code> will <em>silently skip it</em>. Always confirm with
+    <code>clasp status</code> — only the intended files should appear under <em>Tracked files</em>.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="pipeline">4 · The deploy pipeline</h2>
+
+  <p>Every change ships as a pull request. The <code>main</code> branch is protected behind the
+  required <code>verify</code> check, so nothing merges until CI is green. From there a change flows to
+  staging automatically and to prod by an explicit redeploy-in-place.</p>
+
+  <div class="figure">
+<!--mmd:dev-guide-1--><div class="mmd"><svg id="mmd-dev-guide-1" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 1442.08px; background-color: transparent;;max-width:100%;height:auto" viewBox="0 0 1442.078125 155.953125" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mmd-dev-guide-1{font-family:Georgia,"Times New Roman",serif;font-size:16px;fill:#3b3322;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mmd-dev-guide-1 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mmd-dev-guide-1 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mmd-dev-guide-1 .error-icon{fill:#f4ecdc;}#mmd-dev-guide-1 .error-text{fill:#0b1323;stroke:#0b1323;}#mmd-dev-guide-1 .edge-thickness-normal{stroke-width:1px;}#mmd-dev-guide-1 .edge-thickness-thick{stroke-width:3.5px;}#mmd-dev-guide-1 .edge-pattern-solid{stroke-dasharray:0;}#mmd-dev-guide-1 .edge-thickness-invisible{stroke-width:0;fill:none;}#mmd-dev-guide-1 .edge-pattern-dashed{stroke-dasharray:3;}#mmd-dev-guide-1 .edge-pattern-dotted{stroke-dasharray:2;}#mmd-dev-guide-1 .marker{fill:#8a7a5c;stroke:#8a7a5c;}#mmd-dev-guide-1 .marker.cross{stroke:#8a7a5c;}#mmd-dev-guide-1 svg{font-family:Georgia,"Times New Roman",serif;font-size:16px;}#mmd-dev-guide-1 p{margin:0;}#mmd-dev-guide-1 .label{font-family:Georgia,"Times New Roman",serif;color:#3b3322;}#mmd-dev-guide-1 .cluster-label text{fill:#3f4a2e;}#mmd-dev-guide-1 .cluster-label span{color:#3f4a2e;}#mmd-dev-guide-1 .cluster-label span p{background-color:transparent;}#mmd-dev-guide-1 .label text,#mmd-dev-guide-1 span{fill:#3b3322;color:#3b3322;}#mmd-dev-guide-1 .node rect,#mmd-dev-guide-1 .node circle,#mmd-dev-guide-1 .node ellipse,#mmd-dev-guide-1 .node polygon,#mmd-dev-guide-1 .node path{fill:#ffffff;stroke:#e4d8c2;stroke-width:1px;}#mmd-dev-guide-1 .rough-node .label text,#mmd-dev-guide-1 .node .label text,#mmd-dev-guide-1 .image-shape .label,#mmd-dev-guide-1 .icon-shape .label{text-anchor:middle;}#mmd-dev-guide-1 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mmd-dev-guide-1 .rough-node .label,#mmd-dev-guide-1 .node .label,#mmd-dev-guide-1 .image-shape .label,#mmd-dev-guide-1 .icon-shape .label{text-align:center;}#mmd-dev-guide-1 .node.clickable{cursor:pointer;}#mmd-dev-guide-1 .root .anchor path{fill:#8a7a5c!important;stroke-width:0;stroke:#8a7a5c;}#mmd-dev-guide-1 .arrowheadPath{fill:rgba(255, 255, 255, 0);}#mmd-dev-guide-1 .edgePath .path{stroke:#8a7a5c;stroke-width:1px;}#mmd-dev-guide-1 .flowchart-link{stroke:#8a7a5c;fill:none;}#mmd-dev-guide-1 .edgeLabel{background-color:#fbf7ef;text-align:center;}#mmd-dev-guide-1 .edgeLabel p{background-color:#fbf7ef;}#mmd-dev-guide-1 .edgeLabel rect{opacity:0.5;background-color:#fbf7ef;fill:#fbf7ef;}#mmd-dev-guide-1 .labelBkg{background-color:rgba(251, 247, 239, 0.5);}#mmd-dev-guide-1 .cluster rect{fill:#f8f1e3;stroke:#e4d8c2;stroke-width:1px;}#mmd-dev-guide-1 .cluster text{fill:#3f4a2e;}#mmd-dev-guide-1 .cluster span{color:#3f4a2e;}#mmd-dev-guide-1 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:Georgia,"Times New Roman",serif;font-size:12px;background:#f4ecdc;border:1px solid hsl(40, 12.1739130435%, 80.9803921569%);border-radius:2px;pointer-events:none;z-index:100;}#mmd-dev-guide-1 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#3b3322;}#mmd-dev-guide-1 rect.text{fill:none;stroke-width:0;}#mmd-dev-guide-1 .icon-shape,#mmd-dev-guide-1 .image-shape{background-color:#fbf7ef;text-align:center;}#mmd-dev-guide-1 .icon-shape p,#mmd-dev-guide-1 .image-shape p{background-color:#fbf7ef;padding:2px;}#mmd-dev-guide-1 .icon-shape .label rect,#mmd-dev-guide-1 .image-shape .label rect{opacity:0.5;background-color:#fbf7ef;fill:#fbf7ef;}#mmd-dev-guide-1 .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mmd-dev-guide-1 .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mmd-dev-guide-1 .node .neo-node{stroke:#e4d8c2;}#mmd-dev-guide-1 [data-look="neo"].node rect,#mmd-dev-guide-1 [data-look="neo"].cluster rect,#mmd-dev-guide-1 [data-look="neo"].node polygon{stroke:url(#mmd-dev-guide-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-1 [data-look="neo"].node path{stroke:url(#mmd-dev-guide-1-gradient);stroke-width:1px;}#mmd-dev-guide-1 [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-1 [data-look="neo"].node .neo-line path{stroke:#e4d8c2;filter:none;}#mmd-dev-guide-1 [data-look="neo"].node circle{stroke:url(#mmd-dev-guide-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-1 [data-look="neo"].node circle .state-start{fill:#000000;}#mmd-dev-guide-1 [data-look="neo"].icon-shape .icon{fill:url(#mmd-dev-guide-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-1 [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mmd-dev-guide-1-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-1 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="mmd-dev-guide-1_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"/></marker><marker id="mmd-dev-guide-1_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M175.391,77.977L179.557,77.977C183.724,77.977,192.057,77.977,199.724,77.977C207.391,77.977,214.391,77.977,217.891,77.977L221.391,77.977" id="mmd-dev-guide-1-L_E_P_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_E_P_0" data-points="W3sieCI6MTc1LjM5MDYyNSwieSI6NzcuOTc2NTYyNX0seyJ4IjoyMDAuMzkwNjI1LCJ5Ijo3Ny45NzY1NjI1fSx7IngiOjIyNS4zOTA2MjUsInkiOjc3Ljk3NjU2MjV9XQ==" data-look="classic" marker-end="url(#mmd-dev-guide-1_flowchart-v2-pointEnd)"/><path d="M386.766,77.977L390.932,77.977C395.099,77.977,403.432,77.977,411.099,77.977C418.766,77.977,425.766,77.977,429.266,77.977L432.766,77.977" id="mmd-dev-guide-1-L_P_S_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_P_S_0" data-points="W3sieCI6Mzg2Ljc2NTYyNSwieSI6NzcuOTc2NTYyNX0seyJ4Ijo0MTEuNzY1NjI1LCJ5Ijo3Ny45NzY1NjI1fSx7IngiOjQzNi43NjU2MjUsInkiOjc3Ljk3NjU2MjV9XQ==" data-look="classic" marker-end="url(#mmd-dev-guide-1_flowchart-v2-pointEnd)"/><path d="M640,77.977L644.167,77.977C648.333,77.977,656.667,77.977,664.333,77.977C672,77.977,679,77.977,682.5,77.977L686,77.977" id="mmd-dev-guide-1-L_S_PR_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_S_PR_0" data-points="W3sieCI6NjQwLCJ5Ijo3Ny45NzY1NjI1fSx7IngiOjY2NSwieSI6NzcuOTc2NTYyNX0seyJ4Ijo2OTAsInkiOjc3Ljk3NjU2MjV9XQ==" data-look="classic" marker-end="url(#mmd-dev-guide-1_flowchart-v2-pointEnd)"/><path d="M829.953,77.977L835.997,77.977C842.042,77.977,854.13,77.977,865.552,77.977C876.974,77.977,887.729,77.977,893.107,77.977L898.484,77.977" id="mmd-dev-guide-1-L_PR_PRD_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_PR_PRD_0" data-points="W3sieCI6ODI5Ljk1MzEyNSwieSI6NzcuOTc2NTYyNX0seyJ4Ijo4NjYuMjE4NzUsInkiOjc3Ljk3NjU2MjV9LHsieCI6OTAyLjQ4NDM3NSwieSI6NzcuOTc2NTYyNX1d" data-look="classic" marker-end="url(#mmd-dev-guide-1_flowchart-v2-pointEnd)"/><path d="M1124.078,77.977L1128.245,77.977C1132.411,77.977,1140.745,77.977,1148.411,77.977C1156.078,77.977,1163.078,77.977,1166.578,77.977L1170.078,77.977" id="mmd-dev-guide-1-L_PRD_RB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_PRD_RB_0" data-points="W3sieCI6MTEyNC4wNzgxMjUsInkiOjc3Ljk3NjU2MjV9LHsieCI6MTE0OS4wNzgxMjUsInkiOjc3Ljk3NjU2MjV9LHsieCI6MTE3NC4wNzgxMjUsInkiOjc3Ljk3NjU2MjV9XQ==" data-look="classic" marker-end="url(#mmd-dev-guide-1_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_E_P_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_P_S_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_S_PR_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(866.21875, 77.9765625)"><g class="label" data-id="L_PR_PRD_0" transform="translate(-11.265625, -12)"><foreignObject width="22.53125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>yes</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_PRD_RB_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="mmd-dev-guide-1-flowchart-E-0" data-look="classic" transform="translate(91.6953125, 77.9765625)"><rect class="basic label-container" style="" x="-83.6953125" y="-27" width="167.390625" height="54"/><g class="label" style="" transform="translate(-53.6953125, -12)"><rect/><foreignObject width="107.390625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>edit + npm test</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-1-flowchart-P-1" data-look="classic" transform="translate(306.078125, 77.9765625)"><rect class="basic label-container" style="" x="-80.6875" y="-39" width="161.375" height="78"/><g class="label" style="" transform="translate(-50.6875, -24)"><rect/><foreignObject width="101.375" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>clasp push<br />(bound script)</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-1-flowchart-S-3" data-look="classic" transform="translate(538.3828125, 77.9765625)"><rect class="basic label-container" style="" x="-101.6171875" y="-39" width="203.234375" height="78"/><g class="label" style="" transform="translate(-71.6171875, -24)"><rect/><foreignObject width="143.234375" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>staging deploy<br />+ smokes (CI verify)</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-1-flowchart-PR-5" data-look="classic" transform="translate(759.9765625, 77.9765625)"><polygon points="69.9765625,0 139.953125,-69.9765625 69.9765625,-139.953125 0,-69.9765625" class="label-container" transform="translate(-69.4765625, 69.9765625)"/><g class="label" style="" transform="translate(-42.9765625, -12)"><rect/><foreignObject width="85.953125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>PR merged?</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-1-flowchart-PRD-7" data-look="classic" transform="translate(1013.28125, 77.9765625)"><rect class="basic label-container" style="" x="-110.796875" y="-39" width="221.59375" height="78"/><g class="label" style="" transform="translate(-80.796875, -24)"><rect/><foreignObject width="161.59375" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>prod: clasp deploy -i id<br />redeploy-in-place</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-1-flowchart-RB-9" data-look="classic" transform="translate(1304.078125, 77.9765625)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>rollback: clasp deploy -V prev</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="mmd-dev-guide-1-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><defs><filter id="mmd-dev-guide-1-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><linearGradient id="mmd-dev-guide-1-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e4d8c2" stop-opacity="1"/><stop offset="100%" stop-color="hsl(154.2857142857, 0%, 82.9411764706%)" stop-opacity="1"/></linearGradient></svg></div><!--/mmd:dev-guide-1-->
+    <figcaption>The deploy pipeline. A change is verified on staging by CI before merge; prod is a
+    deliberate redeploy-in-place of the same script, with a versioned rollback always available.</figcaption>
+  </div>
+
+  <ul>
+    <li><b>Staging</b> — <code>npm run deploy -- --yes</code> deploys to the staging web app and runs
+    the smokes. CI does this on every PR.</li>
+    <li><b>Prod</b> — create one release version, pre-flight it on a throwaway deployment, then
+    redeploy in place with <code>clasp redeploy &lt;deployment-id&gt; -V &lt;version&gt; -d "…"</code>;
+    the <code>/exec</code> URLs never change. Roll back by re-pinning <code>clasp deploy -i &lt;id&gt;
+    -V &lt;version&gt;</code> to a previous version. There is <b>no Route B on prod</b>. Versions are
+    capped at 200 per script (un-deletable), so every release spends exactly one.</li>
+  </ul>
+
+  <p>The full prod runbook — the required <code>cfg_</code> Script Properties, the pre-flight
+  throwaway-deployment gate, and the redeploy/rollback mechanics — is in
+  <code>docs/reference/dev-lifecycle.md</code>.</p>
+
+  <p><b>Docs publishing:</b> after a <code>docs/product/</code> change merges, republish the
+  rendered set with <code>npm run publish-docs</code> (a PII denylist gate runs inside) — it
+  updates the public copy at <code>kashman001.github.io/hifz/docs/</code> that the in-app
+  "User Guide" / "All docs" links open.</p>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="ci">5 · CI &amp; the doc-only skip</h2>
+
+  <p>The required <code>verify</code> GitHub Actions gate runs on every PR: it runs the Node unit
+  tests and a staging deploy with smoke checks. That heavy work is unnecessary for documentation
+  changes, so a first step short-circuits them.</p>
+
+  <ul>
+    <li>A first step detects <b>doc-only</b> PRs — every changed file is under <code>docs/</code>,
+    under <code>work/</code>, or ends in <code>.md</code> (so <code>CONTEXT.md</code> and its symlinks,
+    <code>BACKLOG.md</code>, handoffs and READMEs all qualify) — and skips the heavy steps, so
+    <code>verify</code> reports green in seconds.</li>
+    <li>Everything else keeps the full gate — <code>.github/**</code>, <code>.claspignore</code>, the
+    root <code>*.html</code> (web-app source, not docs), <code>*.js</code>, and JSON fixtures.</li>
+    <li>It <b>fails safe</b>: if the changed-file list can't be read, it runs the full gate rather
+    than skip.</li>
+  </ul>
+
+  <p>The workflow itself is <code>.github/workflows/verify-deployment.yml</code>.</p>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="testing">6 · Tests &amp; fixtures</h2>
+
+  <p><code>npm test</code> runs the Node unit tests for <code>Logic.js</code> (currently 333) — pure
+  functions with no <code>SpreadsheetApp</code> dependency, so they run locally with no Google access.
+  Add a test first for any logic change.</p>
+
+  <p>The fixtures system creates realistic test students from declarative data:</p>
+  <ul>
+    <li>Author <code>fixtures/test-students/&lt;id&gt;.json</code> — a student's state, written with
+    <em>relative dates</em> so the scenario stays valid as time passes.</li>
+    <li><code>tools/gen-fixtures.mjs</code> bundles the JSON fixtures into <code>Fixtures.js</code>.</li>
+    <li><code>seed-fixtures.mjs</code> seeds a test student's tracker sheet from the bundle.</li>
+  </ul>
+
+  <div class="callout warn">
+    <b>Never test on a real student.</b> The real student is read-only — verification only,
+    never a write. All write tests run against dedicated test students.
+  </div>
+
+  <p>The living scenario registry (what test data must exercise, and which fixture covers each) is in
+  <code>docs/reference/test-scenarios.md</code>.</p>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="agents">7 · Working with AI agents on this repo</h2>
+
+  <p>The repo is built to be navigable by coding agents. The entry-point files
+  (<code>CLAUDE.md</code>, <code>AGENTS.md</code>, <code>GEMINI.md</code>) are symlinks to one
+  <code>CONTEXT.md</code>, so every agent reads the same always-loaded core; deeper detail loads on
+  demand from <code>docs/reference/*</code>.</p>
+
+  <div class="figure">
+<!--mmd:dev-guide-2--><div class="mmd"><svg id="mmd-dev-guide-2" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 780.887px; background-color: transparent;;max-width:100%;height:auto" viewBox="0 0 780.88671875 326" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mmd-dev-guide-2{font-family:Georgia,"Times New Roman",serif;font-size:16px;fill:#3b3322;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mmd-dev-guide-2 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mmd-dev-guide-2 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mmd-dev-guide-2 .error-icon{fill:#f4ecdc;}#mmd-dev-guide-2 .error-text{fill:#0b1323;stroke:#0b1323;}#mmd-dev-guide-2 .edge-thickness-normal{stroke-width:1px;}#mmd-dev-guide-2 .edge-thickness-thick{stroke-width:3.5px;}#mmd-dev-guide-2 .edge-pattern-solid{stroke-dasharray:0;}#mmd-dev-guide-2 .edge-thickness-invisible{stroke-width:0;fill:none;}#mmd-dev-guide-2 .edge-pattern-dashed{stroke-dasharray:3;}#mmd-dev-guide-2 .edge-pattern-dotted{stroke-dasharray:2;}#mmd-dev-guide-2 .marker{fill:#8a7a5c;stroke:#8a7a5c;}#mmd-dev-guide-2 .marker.cross{stroke:#8a7a5c;}#mmd-dev-guide-2 svg{font-family:Georgia,"Times New Roman",serif;font-size:16px;}#mmd-dev-guide-2 p{margin:0;}#mmd-dev-guide-2 .label{font-family:Georgia,"Times New Roman",serif;color:#3b3322;}#mmd-dev-guide-2 .cluster-label text{fill:#3f4a2e;}#mmd-dev-guide-2 .cluster-label span{color:#3f4a2e;}#mmd-dev-guide-2 .cluster-label span p{background-color:transparent;}#mmd-dev-guide-2 .label text,#mmd-dev-guide-2 span{fill:#3b3322;color:#3b3322;}#mmd-dev-guide-2 .node rect,#mmd-dev-guide-2 .node circle,#mmd-dev-guide-2 .node ellipse,#mmd-dev-guide-2 .node polygon,#mmd-dev-guide-2 .node path{fill:#ffffff;stroke:#e4d8c2;stroke-width:1px;}#mmd-dev-guide-2 .rough-node .label text,#mmd-dev-guide-2 .node .label text,#mmd-dev-guide-2 .image-shape .label,#mmd-dev-guide-2 .icon-shape .label{text-anchor:middle;}#mmd-dev-guide-2 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mmd-dev-guide-2 .rough-node .label,#mmd-dev-guide-2 .node .label,#mmd-dev-guide-2 .image-shape .label,#mmd-dev-guide-2 .icon-shape .label{text-align:center;}#mmd-dev-guide-2 .node.clickable{cursor:pointer;}#mmd-dev-guide-2 .root .anchor path{fill:#8a7a5c!important;stroke-width:0;stroke:#8a7a5c;}#mmd-dev-guide-2 .arrowheadPath{fill:rgba(255, 255, 255, 0);}#mmd-dev-guide-2 .edgePath .path{stroke:#8a7a5c;stroke-width:1px;}#mmd-dev-guide-2 .flowchart-link{stroke:#8a7a5c;fill:none;}#mmd-dev-guide-2 .edgeLabel{background-color:#fbf7ef;text-align:center;}#mmd-dev-guide-2 .edgeLabel p{background-color:#fbf7ef;}#mmd-dev-guide-2 .edgeLabel rect{opacity:0.5;background-color:#fbf7ef;fill:#fbf7ef;}#mmd-dev-guide-2 .labelBkg{background-color:rgba(251, 247, 239, 0.5);}#mmd-dev-guide-2 .cluster rect{fill:#f8f1e3;stroke:#e4d8c2;stroke-width:1px;}#mmd-dev-guide-2 .cluster text{fill:#3f4a2e;}#mmd-dev-guide-2 .cluster span{color:#3f4a2e;}#mmd-dev-guide-2 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:Georgia,"Times New Roman",serif;font-size:12px;background:#f4ecdc;border:1px solid hsl(40, 12.1739130435%, 80.9803921569%);border-radius:2px;pointer-events:none;z-index:100;}#mmd-dev-guide-2 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#3b3322;}#mmd-dev-guide-2 rect.text{fill:none;stroke-width:0;}#mmd-dev-guide-2 .icon-shape,#mmd-dev-guide-2 .image-shape{background-color:#fbf7ef;text-align:center;}#mmd-dev-guide-2 .icon-shape p,#mmd-dev-guide-2 .image-shape p{background-color:#fbf7ef;padding:2px;}#mmd-dev-guide-2 .icon-shape .label rect,#mmd-dev-guide-2 .image-shape .label rect{opacity:0.5;background-color:#fbf7ef;fill:#fbf7ef;}#mmd-dev-guide-2 .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mmd-dev-guide-2 .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mmd-dev-guide-2 .node .neo-node{stroke:#e4d8c2;}#mmd-dev-guide-2 [data-look="neo"].node rect,#mmd-dev-guide-2 [data-look="neo"].cluster rect,#mmd-dev-guide-2 [data-look="neo"].node polygon{stroke:url(#mmd-dev-guide-2-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-2 [data-look="neo"].node path{stroke:url(#mmd-dev-guide-2-gradient);stroke-width:1px;}#mmd-dev-guide-2 [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-2 [data-look="neo"].node .neo-line path{stroke:#e4d8c2;filter:none;}#mmd-dev-guide-2 [data-look="neo"].node circle{stroke:url(#mmd-dev-guide-2-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-2 [data-look="neo"].node circle .state-start{fill:#000000;}#mmd-dev-guide-2 [data-look="neo"].icon-shape .icon{fill:url(#mmd-dev-guide-2-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-2 [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mmd-dev-guide-2-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-dev-guide-2 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="mmd-dev-guide-2_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"/></marker><marker id="mmd-dev-guide-2_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M387.48,51.013L358.798,57.011C330.116,63.009,272.751,75.004,244.069,84.502C215.387,94,215.387,101,215.387,104.5L215.387,108" id="mmd-dev-guide-2-L_A_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_C_0" data-points="W3sieCI6Mzg3LjQ4MDQ2ODc1LCJ5Ijo1MS4wMTMzMjA3NjY1NzI0Mn0seyJ4IjoyMTUuMzg2NzE4NzUsInkiOjg3fSx7IngiOjIxNS4zODY3MTg3NSwieSI6MTEyfV0=" data-look="classic" marker-end="url(#mmd-dev-guide-2_flowchart-v2-pointEnd)"/><path d="M144.011,190L136.386,194.167C128.76,198.333,113.509,206.667,105.883,214.333C98.258,222,98.258,229,98.258,232.5L98.258,236" id="mmd-dev-guide-2-L_C_R_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_R_0" data-points="W3sieCI6MTQ0LjAxMTI5MTUwMzkwNjI1LCJ5IjoxOTB9LHsieCI6OTguMjU3ODEyNSwieSI6MjE1fSx7IngiOjk4LjI1NzgxMjUsInkiOjI0MH1d" data-look="classic" marker-end="url(#mmd-dev-guide-2_flowchart-v2-pointEnd)"/><path d="M464.059,62L464.059,66.167C464.059,70.333,464.059,78.667,464.059,86.333C464.059,94,464.059,101,464.059,104.5L464.059,108" id="mmd-dev-guide-2-L_A_M_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_M_0" data-points="W3sieCI6NDY0LjA1ODU5Mzc1LCJ5Ijo2Mn0seyJ4Ijo0NjQuMDU4NTkzNzUsInkiOjg3fSx7IngiOjQ2NC4wNTg1OTM3NSwieSI6MTEyfV0=" data-look="classic" marker-end="url(#mmd-dev-guide-2_flowchart-v2-pointEnd)"/><path d="M540.637,52.307L566.22,58.09C591.803,63.872,642.97,75.436,668.553,84.718C694.137,94,694.137,101,694.137,104.5L694.137,108" id="mmd-dev-guide-2-L_A_K_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_K_0" data-points="W3sieCI6NTQwLjYzNjcxODc1LCJ5Ijo1Mi4zMDc0MzYzMzI3Njc0fSx7IngiOjY5NC4xMzY3MTg3NSwieSI6ODd9LHsieCI6Njk0LjEzNjcxODc1LCJ5IjoxMTJ9XQ==" data-look="classic" marker-end="url(#mmd-dev-guide-2_flowchart-v2-pointEnd)"/><path d="M286.762,190L294.388,194.167C302.013,198.333,317.264,206.667,324.89,214.333C332.516,222,332.516,229,332.516,232.5L332.516,236" id="mmd-dev-guide-2-L_C_SK_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_SK_0" data-points="W3sieCI6Mjg2Ljc2MjE0NTk5NjA5Mzc1LCJ5IjoxOTB9LHsieCI6MzMyLjUxNTYyNSwieSI6MjE1fSx7IngiOjMzMi41MTU2MjUsInkiOjI0MH1d" data-look="classic" marker-end="url(#mmd-dev-guide-2_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_A_C_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_R_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_A_M_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_A_K_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_SK_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="mmd-dev-guide-2-flowchart-A-0" data-look="classic" transform="translate(464.05859375, 35)"><rect class="basic label-container" style="" x="-76.578125" y="-27" width="153.15625" height="54"/><g class="label" style="" transform="translate(-46.578125, -12)"><rect/><foreignObject width="93.15625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Coding agent</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-2-flowchart-C-1" data-look="classic" transform="translate(215.38671875, 151)"><rect class="basic label-container" style="" x="-97.34375" y="-39" width="194.6875" height="78"/><g class="label" style="" transform="translate(-67.34375, -24)"><rect/><foreignObject width="134.6875" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>CONTEXT.md<br />always-loaded core</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-2-flowchart-R-3" data-look="classic" transform="translate(98.2578125, 279)"><rect class="basic label-container" style="" x="-90.2578125" y="-39" width="180.515625" height="78"/><g class="label" style="" transform="translate(-60.2578125, -24)"><rect/><foreignObject width="120.515625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>docs/reference/*<br />load-on-demand</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-2-flowchart-M-5" data-look="classic" transform="translate(464.05859375, 151)"><rect class="basic label-container" style="" x="-101.328125" y="-39" width="202.65625" height="78"/><g class="label" style="" transform="translate(-71.328125, -24)"><rect/><foreignObject width="142.65625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>google-sheets MCP<br />sheet data/formulas</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-2-flowchart-K-7" data-look="classic" transform="translate(694.13671875, 151)"><rect class="basic label-container" style="" x="-78.75" y="-39" width="157.5" height="78"/><g class="label" style="" transform="translate(-48.75, -24)"><rect/><foreignObject width="97.5" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>clasp<br />web-app code</p></span></div></foreignObject></g></g><g class="node default" id="mmd-dev-guide-2-flowchart-SK-9" data-look="classic" transform="translate(332.515625, 279)"><rect class="basic label-container" style="" x="-94" y="-39" width="188" height="78"/><g class="label" style="" transform="translate(-64, -24)"><rect/><foreignObject width="128" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>project skills<br />(tdd, diagnose, ...)</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="mmd-dev-guide-2-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><defs><filter id="mmd-dev-guide-2-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><linearGradient id="mmd-dev-guide-2-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e4d8c2" stop-opacity="1"/><stop offset="100%" stop-color="hsl(154.2857142857, 0%, 82.9411764706%)" stop-opacity="1"/></linearGradient></svg></div><!--/mmd:dev-guide-2-->
+    <figcaption>How a coding agent works the repo. CONTEXT.md is the always-loaded core that points to
+    load-on-demand reference docs and skills; the MCP is the data path and clasp is the code path.</figcaption>
+  </div>
+
+  <ul>
+    <li><b>The <code>google-sheets</code> MCP</b> gives agents direct read/write access to the sheet's
+    data and formulas — the same data path a human uses for data tasks.</li>
+    <li><b>clasp</b> is the code path: agents edit the web-app source and push it.</li>
+    <li><b>Project skills</b> (tdd, diagnose, and others) encode the recommended workflows so an agent
+    follows the same disciplined loop a developer would.</li>
+  </ul>
+
+  <div class="callout blue">
+    <b>Not the same as the app's own AI.</b> The <b>Ask chatbot</b> is the product's <em>own</em>
+    in-app AI — a grounded assistant for students, served by <code>Chatbot.js</code> (see
+    <a href="architecture.html#components">Architecture → Internal components</a>). It is distinct from
+    the coding agents that build the repo.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <h2 class="anchor" id="secrets">8 · Secrets &amp; what's git-ignored</h2>
+
+  <p>The repo contains no secrets and no instance identity. Authentication tokens and the one runtime
+  secret live outside Git entirely; real ids and tokens for the owning instance live only in
+  git-ignored local files.</p>
+
+  <table>
+    <thead>
+      <tr><th>Never commit</th><th>What it is</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>credentials.json</code></td><td>OAuth client credentials for the MCP server.</td></tr>
+      <tr><td><code>token.json</code></td><td>MCP OAuth access/refresh token.</td></tr>
+      <tr><td><code>.clasprc.json</code> / <code>.clasprc*.json</code></td><td>clasp OAuth credentials (from <code>clasp login</code>).</td></tr>
+      <tr><td><code>.env*</code></td><td>Any environment file.</td></tr>
+      <tr><td><code>deployment.local.md</code> / <code>deploy.local.json</code></td><td>The real ids, deployment ids, and per-instance/test-student tokens — the deploy/recovery record and dev params.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <b>No real identity on disk in Git.</b> All of the above are git-ignored. The runtime secret (the
+    Gemini API key, <code>HIFZ_TRACKER_API_KEY</code>) lives only in Script Properties, never in the
+    repo. When documenting, use placeholders — <code>&lt;deployment-id&gt;</code>,
+    <code>owner@example.com</code> — never a real value.
+  </div>
+
+    <footer class="docfoot">
+      Quran Hifz Tracker · documentation · canonical context in <code>CONTEXT.md</code> at the repo
+      root · machine index: <a href="llms.txt">llms.txt</a>.
+    </footer>
+  </div></main>
+
+  <aside class="onthispage" aria-label="On this page">
+    <div class="lbl">On this page</div>
+    <a href="#setup">Set up a machine</a>
+    <a href="#two-tools">Two tools, two jobs</a>
+    <a href="#clasp-loop">The clasp loop</a>
+    <a href="#pipeline">The deploy pipeline</a>
+    <a href="#ci">CI &amp; the doc-only skip</a>
+    <a href="#testing">Tests &amp; fixtures</a>
+    <a href="#agents">Working with AI agents on this repo</a>
+    <a href="#secrets">Secrets &amp; what's git-ignored</a>
+    <div class="forai">
+      <div class="lbl">For AI</div>
+      <a href="llms.txt">↗ llms.txt</a>
+    </div>
+  </aside>
+
+</div>
+</body>
+</html>
