@@ -12,7 +12,7 @@
 - [Code Structure](code-structure.html): file-by-file map, the module dependency graph, key pure functions and api* endpoints, the test suite.
 
 ## Operate
-- [User Guide](user-guide.html): the daily logging routine, Home/Progress/Trends screens, the memory map, the Ask chatbot, and the owner/admin tasks.
+- [User Guide](user-guide.html): the daily logging routine, Home/Progress/Trends screens, the memory map, per-unit milestones + work rates, the Trends Calendar + two-axis Journey, History (as-of / compare / journey), the Ask chatbot, and the owner/admin tasks.
 - [Developer Guide](dev-guide.html): setup, the clasp build/deploy loop, the staging→prod pipeline, CI and the doc-only skip, tests & fixtures, and working with AI agents on this repo.
 - [Deployment](deployment.html): what's deployed and where config & secrets live, and the stable student link.
 - [Migration](migration.html): runbook for moving a live instance to repo-driven config.
@@ -23,7 +23,8 @@
 - architecture.html#components — components incl. the Ask chatbot
 - product-spec.html#pipeline — Sabaq / Para Sabaq / Manzil
 - product-spec.html#states — the memory-map states
-- user-guide.html#trends — Trends incl. onboarding/coverage-sweep exclusion
+- user-guide.html#trends — Trends: Activity / Calendar / Completion, the two-axis Journey, work rates, onboarding/coverage-sweep exclusion
+- user-guide.html#progress — Progress map incl. per-unit milestones + size/span/rate + revision history
 
 ## Notes
 - This doc set is published at https://kashman001.github.io/hifz/docs/ (republish: npm run publish-docs).

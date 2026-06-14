@@ -15,7 +15,7 @@
 
   <nav class="sidenav" aria-label="Documentation sections">
     <a class="brand" href="index.html"><span class="mark">۞</span> Hifz Tracker</a>
-    <div class="ver">docs · prod <code>@181</code></div>
+    <div class="ver">docs · prod <code>@182</code></div>
     <a class="nav" href="index.html">Overview</a>
     <div class="band">Understand</div>
     <a class="nav active" href="product-spec.html">Product Spec</a>
@@ -166,15 +166,22 @@
     <li>A zoomable <b>memory-state map</b>: Juz|Surah overview → continuous page strip (juz dividers inline) → page detail (incl. a per-page <b>"Āyāt x/y"</b> verse-aware readout) → line level (✓ recited / ◐ memorized-awaiting / ○ not-memorized).</li>
     <li>A dual-progress bar (memorized vs recited).</li>
     <li>A "falling out of memory" shortcut listing the most-overdue pages.</li>
-    <li>A weekly sabaq bar chart (pages memorized per ISO week, scrollable, time left→right).</li>
+    <li>Tapping any unit (page/surah/juz) shows its <b>milestones</b> — memorized / recited-to-hafiz dates and
+    full-revision count + last revision — plus a <b>size · span · rate</b> line (lines, +āyāt for a surah; "same
+    day" / "over N days"; pace e.g. ≈ 5 lines/day) and a lazy <b>revision-history</b> disclosure.</li>
   </ul>
   <h3>Log · Trends · Settings</h3>
-  <p>Log holds the four workflows (§8). Trends shows activity bars (category × metric, with +/− grain zoom
-  Day↔Quarter and drag-to-pan) and a cumulative completion line with projection rays. The activity bars
-  <b>exclude state-communicating bulk entries</b> — pre-tracking onboarded memorization (dated before the
-  student's start) and Manzil coverage sweeps (a single entry ≥ <code>MANZIL_SWEEP_PAGES</code>, default 100)
-  — and annotate them; the completion line re-adds the pre-tracking total as its starting baseline. Settings
-  holds the mushaf edition and the memory-model parameters (§13).</p>
+  <p>Log holds the four workflows (§8). Trends has <b>three modes</b> — <b>Activity</b> (bars: category × metric,
+  +/− grain zoom Day↔Quarter, drag-to-pan, with a pace readout), <b>Calendar</b> (a heat-tinted Day→Year grid with
+  shape-coded effort marks — circle Sabaq / square Para Sabaq / diamond Manzil — and per-axis "memorized" chips,
+  P/J physical green · S surah gold; tap a cell → a <b>Journey</b>), and <b>Completion</b> (a cumulative
+  completion line with projection rays). A <b>Journey</b> reports, over a window, what was finished and revised on
+  two axes (Physical Juz/Pages · Semantic Surahs/Āyāt) with memorized/recited layers, per-unit size·span·pace, and
+  revision throughput + per-juz heatmap + a neglected warning. Activity (and Calendar) <b>exclude
+  state-communicating bulk entries</b> — pre-tracking onboarded memorization (dated before the student's start)
+  and Manzil coverage sweeps (a single entry ≥ <code>MANZIL_SWEEP_PAGES</code>, default 100) — and annotate them;
+  the completion line re-adds the pre-tracking total as its starting baseline. Settings holds the mushaf edition
+  and the memory-model parameters (§13).</p>
   <h3>Header tools (not nav tabs)</h3>
   <p>Two read-only tools hang off the header rather than the bottom nav, each reached by an icon:</p>
   <ul>
@@ -183,7 +190,8 @@
     one-date snapshot with the live Home renderer plus an "⏳ As of …" banner. <b>Compare</b> mode takes two
     dates and shows a side-by-side <b>A · B · Δ</b> metric table, a window-activity card, and windowed trend
     charts (sabaq / recited / para / manzil volume <em>and</em> manzil mistakes / hesitations / strength
-    quality, bucketed daily / weekly / monthly by span). A snapshot re-derives each line's memorized/recited
+    quality, bucketed daily / weekly / monthly by span). A third <b>Journey</b> mode renders the same two-axis
+    Journey as a calendar-cell tap over the A→B window (incl. revisions the Δ table can't show). A snapshot re-derives each line's memorized/recited
     from its date <code>≤ cutoff</code> (so headline counts come from the rows, never the today-only dashboard
     cells) and runs the same map/verse/card functions with <code>todayIso = cutoff</code>, so pipeline
     freshness is relative to that cutoff. It needs <b>no new stored data</b> — per-line dates and dated logs

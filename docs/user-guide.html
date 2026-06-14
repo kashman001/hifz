@@ -15,7 +15,7 @@
 
   <nav class="sidenav" aria-label="Documentation sections">
     <a class="brand" href="index.html"><span class="mark">۞</span> Hifz Tracker</a>
-    <div class="ver">docs · prod <code>@181</code></div>
+    <div class="ver">docs · prod <code>@182</code></div>
     <a class="nav" href="index.html">Overview</a>
     <div class="band">Understand</div>
     <a class="nav" href="product-spec.html">Product Spec</a>
@@ -208,6 +208,11 @@
     <li>Tap a unit → <b>page strip</b> — a continuous run of pages (juz dividers inline).</li>
     <li>Tap a page → <b>detail</b> (memorized/recited counts, para/manzil counts + last dates, graduation progress) and a <b>line level</b> (✓ recited / ◐ memorized-awaiting / ○ not-memorized).</li>
   </ol>
+  <p>Tapping any unit (page, surah, or juz) also shows its <b>milestones</b> — when it was <em>memorized</em> and
+  <em>recited to the hafiz</em>, and how many times it has been fully <em>revised</em> (with the last revision date) —
+  plus a <b>size · span · rate</b> line: how big it is (lines, and āyāt for a surah), how long it took ("same day" or
+  "over N days"), and the pace (e.g. <b>≈ 5 lines/day</b>). Open <b>Revision history</b> for the dated list of every
+  full revision (Para Sabaq / Manzil).</p>
   <h4>Colour legend</h4>
   <div class="legend">
     <span><span class="swatch" style="background:#cfcfcf"></span> Not memorized</span>
@@ -225,18 +230,28 @@
   </ul>
 
   <h2 class="anchor" id="trends">E2 · Trends</h2>
-  <p>The <b>Trends</b> tab plots your activity and completion over time — sabaq, recited, para, and manzil
-  volume — so you can see the rhythm of the routine at a glance. Zoom the <b>Activity</b> bars in and out with
-  the <b>+ / −</b> buttons (<b>Day ↔ Week ↔ Month ↔ Quarter</b>) and drag sideways to pan through history; tap
-  a bar for its value. (The weekly sabaq chart that used to sit on Progress now lives here too.)</p>
-  <p><b>What the Activity bars leave out — so they stay readable.</b> Entries that record memory you
-  <em>already had</em> rather than a day's work are kept off the Activity bars and shown as a small caption
-  instead: the <b>memorization you onboarded with</b> (anything dated before the student's start date) and
-  <b>Manzil "coverage sweeps"</b> (one very large rotation entry — by default <b>100+ pages</b> — used to
-  mark a whole range as already in long-term memory). They still count everywhere else — the <b>Completion</b>
-  line <em>starts</em> at that already-memorized level (with a marked starting point), and the memory map still
-  shows those pages. Without this, a single onboarding entry of thousands of lines would dwarf every normal
-  week into a sliver.</p>
+  <p>The <b>Trends</b> tab has <b>three modes</b> (toggle at the top): <b>Activity</b>, <b>Calendar</b>, and
+  <b>Completion</b>.</p>
+  <p><b>Activity</b> plots your volume over time — sabaq, recited, para, and manzil — so you can see the rhythm of
+  the routine at a glance. Zoom the bars in and out with the <b>+ / −</b> buttons (<b>Day ↔ Week ↔ Month ↔
+  Quarter</b>) and drag sideways to pan through history; tap a bar for its value. (The weekly sabaq chart that used
+  to sit on Progress now lives here.) A <b>pace</b> line on top reads the throughput (e.g. <b>≈ 38 lines/week</b>).</p>
+  <p><b>Calendar</b> shows activity as a heat-tinted grid — busier days/periods are greener. Zoom <b>Day → Year</b>
+  with <b>+ / −</b>. Each day carries small <b>effort marks</b> — a <b>circle</b> for Sabaq, a <b>square</b> for
+  Para Sabaq, a <b>diamond</b> for Manzil (so they read by shape, not just colour) — and, when a unit is
+  <em>memorized</em> that day, a little tag: <b>P</b> (page) or <b>J</b> (juz) in green for the physical side, <b>S</b>
+  (surah) in gold for the semantic side. <b>Tap any cell</b> to open its <b>Journey</b>.</p>
+  <p>A <b>Journey</b> answers "<em>what was finished, how fast, and how much was revised</em>" in that window, on
+  two axes — <b>Physical</b> (Juz · Pages, green) and <b>Semantic</b> (Surahs · Āyāt, gold) — with memorized and
+  recited shown separately, each unit carrying its size · span · pace. It also shows revisions: how many, a per-juz
+  frequency strip, and a gentle warning for juz that were memorized earlier but went unrevised in the window.</p>
+  <p><b>What the Activity bars (and Calendar) leave out — so they stay readable.</b> Entries that record memory you
+  <em>already had</em> rather than a day's work are kept off the chart and shown as a small caption instead: the
+  <b>memorization you onboarded with</b> (anything dated before the student's start date) and <b>Manzil "coverage
+  sweeps"</b> (one very large rotation entry — by default <b>100+ pages</b> — used to mark a whole range as already
+  in long-term memory). They still count everywhere else — the <b>Completion</b> line <em>starts</em> at that
+  already-memorized level (with a marked starting point), and the memory map still shows those pages. Without this,
+  a single onboarding entry of thousands of lines would dwarf every normal week into a sliver.</p>
 
   <h2 class="anchor" id="history">E3 · History (🕐)</h2>
   <p>Tap the <b>🕐</b> in the header to step back in time. It's <b>read-only</b> — it never changes any data;
@@ -245,6 +260,8 @@
     <li><b>As of</b> — pick one date to see a full snapshot of Home as it stood on that day (with an "⏳ As of …" banner).</li>
     <li><b>Compare</b> — pick two dates to see what changed: an <b>A · B · Δ</b> table of the headline numbers, a
     summary of activity in the window, and trend charts of sabaq / recited / para / manzil over that span.</li>
+    <li><b>Journey</b> — pick two dates to see the same two-axis <b>Journey</b> as a calendar-cell tap (what was
+    finished and revised over that span), including the revisions the Compare table can't show.</li>
   </ul>
 
   <h2 class="anchor" id="position">F · Setting current position (✎)</h2>

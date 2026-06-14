@@ -15,7 +15,7 @@
 
   <nav class="sidenav" aria-label="Documentation sections">
     <a class="brand" href="index.html"><span class="mark">۞</span> Hifz Tracker</a>
-    <div class="ver">docs · prod <code>@181</code></div>
+    <div class="ver">docs · prod <code>@182</code></div>
     <a class="nav" href="index.html">Overview</a>
     <div class="band">Understand</div>
     <a class="nav" href="product-spec.html">Product Spec</a>
@@ -173,7 +173,10 @@
     <tr><td><code>apiGetMemoryMap(token)</code></td><td>The Progress memory map (per-page/juz/surah pipeline state). Also feeds the Spatial Lanes picker, which renders all three zoom levels (Juz·Surah / Surah·Page / Verse·Line) client-side from this plus <code>apiGetStruct</code> and <code>apiGetVerseIndex</code>.</td><td>token</td></tr>
     <tr><td><code>apiGetTrends(token, …)</code></td><td>The Trends screen: activity bars (category × metric × scope) and the cumulative completion series.</td><td>token</td></tr>
     <tr><td><code>apiGetVerseIndex(token)</code> / <code>apiGetStruct(token)</code></td><td>Lazy, client-cached static data: the compiled-in verse index (Surah:Āyah resolution) and the picker structure (pages/bounds/surah list) — both kept off the <code>apiGetState</code> hot path.</td><td>token</td></tr>
-    <tr><td><code>apiGetHistory(token, fromIso, toIso)</code></td><td>The History "time machine": one read → two snapshots (as-of/compare) + their diff + windowed trends. Reads the logs' quality columns.</td><td>token</td></tr>
+    <tr><td><code>apiGetHistory(token, fromIso, toIso)</code></td><td>The History "time machine": one read → two snapshots (as-of/compare) + their diff + windowed trends + a two-axis <b>Journey</b> (<code>journeySummary</code>). Reads the logs' quality columns.</td><td>token</td></tr>
+    <tr><td><code>apiGetUnitHistory(token, type, id)</code></td><td>Lazy per-unit (page/surah/juz) labeled revision history + size/span, for the Progress inspect disclosure.</td><td>token</td></tr>
+    <tr><td><code>apiGetActivity(token, fromIso, toIso, grain)</code></td><td>Lazy per-period activity for the Trends <b>Calendar</b> — buckets at a grain with per-axis completions + effort marks; same onboarding/Manzil-sweep exclusions as the bars.</td><td>token</td></tr>
+    <tr><td><code>apiGetJourney(token, fromIso, toIso)</code></td><td>The <b>Journey detail</b> over a window: two-axis (physical/semantic) completions with size/span/rate + revision throughput/heatmap/neglected. Shared by a calendar-cell tap and History.</td><td>token</td></tr>
     <tr><td><code>apiChat(token, message, recentTurns)</code></td><td>The Ask chatbot: route→fetch→phrase grounded Q&amp;A over the student's own data (numbers computed in code, not by the model).</td><td>token</td></tr>
     <tr><td><code>apiSetMushafVersion(token, v)</code> / <code>apiSetMemoryParams(token, p)</code></td><td>Settings writes (edition; memory model — daily target also → <code>Dashboard!E7</code>).</td><td>token</td></tr>
     <tr><td><code>apiListStudents()</code></td><td>Admin: list students (name, token, link).</td><td><b>owner</b></td></tr>
@@ -193,7 +196,7 @@
 
   <h2 class="anchor" id="tests">7 · Tests</h2>
   <p>Pure logic is covered by the Node built-in test runner (<code>node:test</code>):</p>
-  <pre><code>npm test        # runs tests/logic.test.js — 333 tests, 0 deps</code></pre>
+  <pre><code>npm test        # runs tests/logic.test.js — 370 tests, 0 deps</code></pre>
   <ul>
     <li>Tests build a small structural fixture (a few surahs/pages), call <code>Logic.js</code> functions, and assert exact outputs — no mocks, no SpreadsheetApp.</li>
     <li>The SpreadsheetApp/HTML layers are verified by <code>node --check &lt;file&gt;</code> (syntax) and a manual browser smoke test (<code>tests/SmokeTestSteps.txt</code>), including a parse-check that extracts each HTML <code>&lt;script&gt;</code> and <code>new Function(...)</code>s it.</li>
